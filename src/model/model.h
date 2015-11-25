@@ -1,48 +1,49 @@
 #ifndef XGMM_MODEL_MODEL_H
 #define XGMM_MODEL_MODEL_H
 #include<vector>
-#include<math>
+#include<cmath>
+#include "../utils/math.h"
 
 namespace xgmm{
 namespace model{
-template<typename TMean, typename TVar>
 class IModel {
 public:
-    virtual float CalcProb(Batch &bat, std::vector<float> &res) const  = 0;
-    virtual float Assign(Batch &bat, std::vector<int> &cluster) const = 0;
+    virtual float CalcProb(std::vector<float> &bat, std::vector<float> &res) const  = 0;
+    virtual float Assign(std::vector<float> &bat, std::vector<int> &cluster) const = 0;
     virtual void GetWeight(std::vector<float> &weight) const = 0;
-    virtual Update() = 0;
+    virtual void Update() = 0;
     virtual ~IModel();
 };
 
-struct IsoVar;
-template<float, IsoVar>
 class BaseModel : public IModel {
 public:
-    BaseModel(int components, int dim):components(components), dim(dim) {
+    BaseModel(int components, int dim):nComp(components), dim(dim) {
         mean.resize(components * dim);
-        var.resize(conpunents);
+        var.resize(components);
     }
-    float CalcProb(const Batch &data, std::vector<float> &prob) const {
+    virtual float CalcProb(const std::vector<float> &bat, std::vector<float> &prob) const {
+        int size = bat.size() / dim;
         float likelihood = 0.0f;
-        prob.resize(Data.size() * components);
-        for (int i = 0; i < n; i++) {
-            for (int c = 0; c < components; c++) {
-                float p = CalcProb(data, i, c);
-                prob[i * components + c] = p;
+        prob.resize(size * nComp);
+        for (int i = 0; i < size; i++) {
+            for (int c = 0; c < nComp; c++) {
+                float p = CalcProb(bat, i, c);
+                prob[i * nComp + c] = p;
                 likelihood += p;
             }
         }
         return likelihood;
     }
-    float Assign(IData &data, std::vector<int> &res) {
+    virtual float Assign(const std::vector<float> &bat, std::vector<int> &res) {
+        int size = bat.size() / dim;
         float likelihood = 0.0f;
-        res.ressize(data.size());
-        for (int i = 0; i < data.Size(); i++) {
+
+        res.resize(size);
+        for (int i = 0; i < size; i++) {
             int cMax = 0;
             float pMax = -1e-100;
             for (int c = 0; c < nComp; c++) {
-                float p = CalcProb(data, i, c);
+                float p = CalcProb(bat, i, c);
                 likelihood += p;
                 if (p > pMax) {
                     cMax = c;
@@ -54,19 +55,52 @@ public:
         return likelihood;
     }
     void GetWeight(std::vector<float> &weight) {
-        weight.resize(nComp);
-        for (int i = 0; i < nComp; i++) {
-            weight[i] = std::exp(logWeight[i]);
+        utils::Exp(logWeight, weight);
+    }
+    virtual void Update(const std::vector<float> &bat, std::vector<float> &prob, float rate) {
+        int size = bat.size() / dim;
+        utils::Fill(mean, 0.0);
+        utils::Fill(var, 0.0);
+        utils::Fill(logWeight, 0.0);
+        for (int i = 0; i < size; i++) {
+            for (int c = 0; c < nComp; c++) {
+                for (int d = 0; d < dim; d++) {
+                    mean[c * dim + d] += bat[i * dim + d] * prob[i * nComp + c];
+                }
+            }
         }
+        for (int c = 0; c < nComp; c++) {
+            for (int d = 0; d < dim; d++) {
+                mean[c * dim + d] /= size;
+            }
+        }
+        utils::Divide(mean, size);
+        for (int i = 0; i < size; i++) {
+            for (int c = 0; c < nComp; c++) {
+                for (int d = 0; d < nComp; c++) {
+                    float diff = bat[i * dim + d] - mean[c * dim + d];
+                    var[i] += diff * diff;
+                }
+            }
+        }
+        for (int c = 0; c < nComp; c++) {
+            var[c] /= size;
+        }
+        for (int i = 0; i < size; i++) {
+            for (int c = 0; c < nComp; c++) {
+                logWeight[c] += prob[i * nComp + c];
+            }
+        }
+        utils::Log(logWeight);
     }
 private:
-    inline float CalcProb(Batch &data, int idx, int comp) const {
+    inline float CalcProb(const std::vector<float> &bat, int idx, int comp) const {
         const float constTerm = M_LN2 + std::log(M_PI);
         float sumSq = 0.0f; 
         float diff = 0.0f;
         for (int d = 0; d < dim; d++) {
-            diff = data[idx * dim + d] - mean[comp * dim + d];
-            sum += diff * diff;
+            diff = bat[idx * dim + d] - mean[comp * dim + d];
+            sumSq += diff * diff;
         }
         return -0.5 * (constTerm + dim * std::log(var[comp]) + sumSq / var[comp]) 
                 + logWeight[comp];
@@ -80,9 +114,12 @@ private:
 
 class EmUpdater {
 public:
-    void Update(const Batch& bat, BaseModel &model) {
-        model.CalProb(bat, prob);        
+    void Update(const std::vector<float>& bat, BaseModel &model) {
+        model.CalcProb(bat, prob);        
+        model.Update(bat, prob, 1.0);
     }
+private:
+    std::vector<float> prob;
 };
 
 }
