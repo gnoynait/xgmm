@@ -8,11 +8,11 @@ namespace xgmm{
 namespace model{
 class IModel {
 public:
-    virtual float CalcProb(std::vector<float> &bat, std::vector<float> &res) const  = 0;
-    virtual float Assign(std::vector<float> &bat, std::vector<int> &cluster) const = 0;
+    virtual float CalcProb(const std::vector<float> &bat, std::vector<float> &res) const  = 0;
+    virtual float Assign(const std::vector<float> &bat, std::vector<int> &cluster) const = 0;
     virtual void GetWeight(std::vector<float> &weight) const = 0;
-    virtual void Update() = 0;
-    virtual ~IModel();
+    virtual void Update(const std::vector<float> &bat, std::vector<float> &prob, float rate) = 0;
+    virtual ~IModel() {}
 };
 
 class BaseModel : public IModel {
@@ -34,7 +34,7 @@ public:
         }
         return likelihood;
     }
-    virtual float Assign(const std::vector<float> &bat, std::vector<int> &res) {
+    virtual float Assign(const std::vector<float> &bat, std::vector<int> &res) const {
         int size = bat.size() / dim;
         float likelihood = 0.0f;
 
@@ -54,7 +54,7 @@ public:
         }
         return likelihood;
     }
-    void GetWeight(std::vector<float> &weight) {
+    void GetWeight(std::vector<float> &weight) const {
         utils::Exp(logWeight, weight);
     }
     virtual void Update(const std::vector<float> &bat, std::vector<float> &prob, float rate) {
@@ -93,6 +93,7 @@ public:
         }
         utils::Log(logWeight);
     }
+    virtual ~BaseModel() {}
 private:
     inline float CalcProb(const std::vector<float> &bat, int idx, int comp) const {
         const float constTerm = M_LN2 + std::log(M_PI);
@@ -115,8 +116,10 @@ private:
 class EmUpdater {
 public:
     void Update(const std::vector<float>& bat, BaseModel &model) {
-        model.CalcProb(bat, prob);        
-        model.Update(bat, prob, 1.0);
+        for (int i = 0; i < 100; i++) {
+            model.CalcProb(bat, prob);        
+            model.Update(bat, prob, 1.0);
+        }
     }
 private:
     std::vector<float> prob;
